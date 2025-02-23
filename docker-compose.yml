@@ -1,0 +1,91 @@
+
+services:
+  postgres:
+    image: postgres:16
+    restart: always
+    environment:
+  
+      POSTGRES_PASSWORD: ${KC_DB_PASSWORD}
+      APP_DB_USER: ${APP_DB_USER}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD}
+      APP_DB_NAME: ${APP_DB_NAME}
+      KC_DB_USER: ${KC_DB_USER}
+      KC_DB_PASSWORD: ${KC_DB_PASSWORD}
+      KC_DB_NAME: ${KC_DB_NAME}
+
+    volumes:
+      - ./database/init_db.sh:/docker-entrypoint-initdb.d/init_db.sh
+    ports:
+      - "5432:5432"
+    networks:
+      internal-net:
+        aliases:
+          - postgres
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:25.0.0
+    restart: always
+    environment:
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/${KC_DB_NAME}
+      KC_DB_USERNAME: ${KC_DB_USER}
+      KC_DB_PASSWORD: ${KC_DB_PASSWORD}
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+    networks:
+      internal-net:
+        aliases:
+          - keycloak
+    command:
+      ["start-dev"]
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      QUARKUS_KEYCLOAK_REALM: ${KEYCLOAK_REALM}
+      QUARKUS_KEYCLOAK_AUTH_SERVER_URL: http://keycloak:8080/auth
+      QUARKUS_KEYCLOAK_CLIENT_ID: ${KEYCLOAK_BACKEND_CLIENT_ID}
+      QUARKUS_KEYCLOAK_CREDENTIAL_SECRET: ${KEYCLOAK_CREDENTIAL_SECRET}
+      QUARKUS_HTTP_PORT: 8081
+      APP_DB_URL: jdbc:postgresql://postgres:5432/${APP_DB_NAME}
+      APP_DB_USERNAME: ${APP_DB_USER}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD}
+    ports:
+      - "8081:8081"
+    depends_on:
+      - postgres
+      - keycloak
+    networks:
+      internal-net:
+        aliases:
+          - backend
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    environment:
+      REACT_APP_KEYCLOAK_REALM: ${KEYCLOAK_REALM}
+      REACT_APP_KEYCLOAK_AUTH_SERVER_URL: http://keycloak:8080/auth
+      REACT_APP_KEYCLOAK_CLIENT_ID: ${KEYCLOAK_FRONTEND_CLIENT_ID}
+      REACT_APP_BACKEND_URL: http://backend:8081
+    ports:
+      - "5173:5173"
+    depends_on:
+      - postgres
+      - keycloak
+      - backend
+    networks:
+      internal-net:
+        aliases:
+          - frontend
+volumes:
+    pgdata:
+networks:
+  internal-net:
+    driver: bridge
